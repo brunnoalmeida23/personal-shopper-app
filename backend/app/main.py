@@ -93,16 +93,19 @@ def criar_pedido(pedido: Pedido):
             "preco_unitario": item.preco_unitario,
             "observacoes": item.observacoes
         }).execute()
-    
     return {"pedido_id": pedido_id, "total": total, "status": "aberto"}
 
+
 @app.get("/pedido/{pedido_id}")
+
 def buscar_pedido(pedido_id: str):
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
+
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     
     itens = supabase.table("pedido_itens").select("*").eq("pedido_id", pedido_id).execute()
+
     
     return {
         **pedido.data[0],
@@ -144,13 +147,32 @@ def gerar_pix(pedido_id: str):
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    
     p = pedido.data[0]
+    cliente = p["clientes"]
+    
+    cliente_asaas = criar_cliente_asaas(cliente["telefone"], cliente["nome"])
+    
+    headers = {
+        "access_token": ASAAS_API_KEY,
+        "Content-Type": "application/json"
+    }
+    
     payload = {
+        "customer": cliente_asaas["id"],
+        "billingType": "PIX",
+        "value": p["total"],
         "dueDate": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
         "description": f"Pedido {pedido_id[:8]} - {cliente['apartamento']}"
+    }
+    
+    response = requests.post(f"{ASAAS_URL}/payments", json=payload, headers=headers)
     data = response.json()
     
     supabase.table("pedidos").update({
+        "pagamento_id": data.get("id"),
+        "pagamento_tipo": "pix",
+        "status": "aguardando_pagamento"
     }).eq("id", pedido_id).execute()
     
     return {
@@ -164,11 +186,14 @@ def gerar_pix(pedido_id: str):
 async def webhook_asaas(request: Request):
     payload = await request.json()
     
+
     payment_id = payload.get("payment", {}).get("id")
     status = payload.get("payment", {}).get("status")
     
+
     if status == "CONFIRMED" and payment_id:
-        supabase.table("pedidos").update({
+
+        pedido = supabase.table("pedidos").update({
             "status": "pago"
         }).eq("pagamento_id", payment_id).execute()
         
@@ -218,22 +243,4 @@ def buscar_produto(nome: str, cliente_id: Optional[str] = None):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)        "pagamento_id": data.get("id"),
-        "pagamento_tipo": "pix",
-        "status": "aguardando_pagamento"
-    }
-    
-    response = requests.post(f"{ASAAS_URL}/payments", json=payload, headers=headers)
-        "customer": cliente_asaas["id"],
-        "billingType": "PIX",
-        "value": p["total"],
-    
-    headers = {
-    
-        "access_token": ASAAS_API_KEY,
-        "Content-Type": "application/json"
-    }
-    cliente = p["clientes"]
-    
-    cliente_asaas = criar_cliente_asaas(cliente["telefone"], cliente["nome"])
-
+    uvicorn.run(app, host="0.0.0.0", port=8000)
