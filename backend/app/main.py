@@ -9,10 +9,10 @@ import requests
 
 app = FastAPI(title="Personal Shopper Único API", version="1.0")
 
-# CORS - Permite o frontend acessar
+# ==================== CORS CONFIGURADO CORRETAMENTE ====================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Em produção, coloque o domínio do Vercel
+    allow_origins=["*"],  # Permite todas as origens (Vercel, localhost, etc.)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,29 +76,7 @@ def criar_cliente(cliente: Cliente):
 
 @app.post("/pedido")
 def criar_pedido(pedido: Pedido):
-    """Cria um novo pedido"""
-    # Calcula total
-    total = sum([item.preco_unitario * item.quantidade for item in pedido.itens])
-    
-    # Insere pedido
-    novo_pedido = supabase.table("pedidos").insert({
-        "cliente_id": pedido.cliente_id,
-        "total": total,
-        "agendamento": pedido.agendamento,
-        "data_agendada": pedido.data_agendada,
         "observacoes": pedido.observacoes,
-        "status": "aberto"
-    }).execute()
-    
-    pedido_id = novo_pedido.data[0]["id"]
-    
-    # Insere itens
-    for item in pedido.itens:
-        supabase.table("pedido_itens").insert({
-            "pedido_id": pedido_id,
-            "produto_id": item.produto_id,
-            "nome_produto": item.nome_produto,
-            "quantidade": item.quantidade,
             "preco_unitario": item.preco_unitario,
             "observacoes": item.observacoes
         }).execute()
@@ -110,30 +88,6 @@ def buscar_pedido(pedido_id: str):
     """Busca um pedido completo com itens"""
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
-        raise HTTPException(status_code=404, detail="Pedido não encontrado")
-    
-    itens = supabase.table("pedido_itens").select("*").eq("pedido_id", pedido_id).execute()
-    
-    return {
-        **pedido.data[0],
-        "itens": itens.data
-    }
-
-@app.get("/pedido/{pedido_id}/status")
-def status_pedido(pedido_id: str):
-    """Consulta status do pedido"""
-    pedido = supabase.table("pedidos").select("status").eq("id", pedido_id).execute()
-    if not pedido.data:
-        raise HTTPException(status_code=404, detail="Pedido não encontrado")
-    return {"status": pedido.data[0]["status"]}
-
-# ==================== ROTAS DE PAGAMENTO (Asaas) ====================
-
-ASAAS_API_KEY = os.environ.get("ASAAS_API_KEY")
-ASAAS_URL = os.environ.get("ASAAS_URL", "https://sandbox.asaas.com/api/v3")
-
-def criar_cliente_asaas(telefone: str, nome: str):
-    """Cria ou busca cliente no Asaas"""
     headers = {
         "access_token": ASAAS_API_KEY,
         "Content-Type": "application/json"
@@ -152,28 +106,7 @@ def criar_cliente_asaas(telefone: str, nome: str):
     }
     response = requests.post(f"{ASAAS_URL}/customers", json=payload, headers=headers)
     return response.json()
-
-@app.post("/pagamento/pix/{pedido_id}")
-def gerar_pix(pedido_id: str):
-    """Gera QR Code PIX para o pedido"""
-    # Busca pedido
-    pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
-    if not pedido.data:
-        raise HTTPException(status_code=404, detail="Pedido não encontrado")
-    
-    p = pedido.data[0]
-    cliente = p["clientes"]
-    
-    # Cria cliente no Asaas
-    cliente_asaas = criar_cliente_asaas(cliente["telefone"], cliente["nome"])
-    
-    headers = {
-        "access_token": ASAAS_API_KEY,
-        "Content-Type": "application/json"
     }
-    
-    payload = {
-        "customer": cliente_asaas["id"],
         "billingType": "PIX",
         "value": p["total"],
         "dueDate": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
@@ -189,35 +122,8 @@ def gerar_pix(pedido_id: str):
         "pagamento_tipo": "pix",
         "status": "aguardando_pagamento"
     }).eq("id", pedido_id).execute()
-    
-    return {
-        "qr_code": data.get("pixQrCode"),
-        "qr_code_image": data.get("encodedImage"),
-        "expiration": data.get("expirationDate"),
-        "payment_id": data.get("id")
-    }
-
-@app.post("/webhook/asaas")
-async def webhook_asaas(request: Request):
-    """Webhook para receber confirmação do Asaas"""
-    payload = await request.json()
-    
-    payment_id = payload.get("payment", {}).get("id")
-    status = payload.get("payment", {}).get("status")
-    
-    if status == "CONFIRMED" and payment_id:
-        # Atualiza pedido
-        pedido = supabase.table("pedidos").update({
-            "status": "pago"
-        }).eq("pagamento_id", payment_id).execute()
         
-        if pedido.data:
-            # Aqui você pode enviar notificação via WhatsApp
-            print(f"✅ Pedido {payment_id} pago com sucesso!")
     
-    return {"status": "ok"}
-
-# ==================== ROTAS DE PRODUTOS SOB DEMANDA ====================
 
 @app.post("/buscar-produto")
 def buscar_produto(nome: str, cliente_id: Optional[str] = None):
@@ -264,4 +170,96 @@ def buscar_produto(nome: str, cliente_id: Optional[str] = None):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)    return {"status": "ok"}
+
+# ==================== ROTAS DE PRODUTOS SOB DEMANDA ====================
+        if pedido.data:
+            # Aqui você pode enviar notificação via WhatsApp
+            print(f"✅ Pedido {payment_id} pago com sucesso!")
+    
+    if status == "CONFIRMED" and payment_id:
+        }).eq("pagamento_id", payment_id).execute()
+        # Atualiza pedido
+        pedido = supabase.table("pedidos").update({
+            "status": "pago"
+    return {
+        "qr_code": data.get("pixQrCode"),
+    
+    
+    payment_id = payload.get("payment", {}).get("id")
+    status = payload.get("payment", {}).get("status")
+        "qr_code_image": data.get("encodedImage"),
+        "expiration": data.get("expirationDate"),
+        "payment_id": data.get("id")
+    }
+    """Webhook para receber confirmação do Asaas"""
+    payload = await request.json()
+
+@app.post("/webhook/asaas")
+async def webhook_asaas(request: Request):
+    
+    payload = {
+        "customer": cliente_asaas["id"],
+
+@app.post("/pagamento/pix/{pedido_id}")
+        "Content-Type": "application/json"
+    
+    headers = {
+        "access_token": ASAAS_API_KEY,
+def gerar_pix(pedido_id: str):
+    """Gera QR Code PIX para o pedido"""
+    cliente_asaas = criar_cliente_asaas(cliente["telefone"], cliente["nome"])
+    # Busca pedido
+    pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
+    # Cria cliente no Asaas
+    p = pedido.data[0]
+    cliente = p["clientes"]
+    
+    if not pedido.data:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    
+    """Cria ou busca cliente no Asaas"""
+    itens = supabase.table("pedido_itens").select("*").eq("pedido_id", pedido_id).execute()
+    
+def criar_cliente_asaas(telefone: str, nome: str):
+    return {
+        **pedido.data[0],
+        "itens": itens.data
+ASAAS_API_KEY = os.environ.get("ASAAS_API_KEY")
+ASAAS_URL = os.environ.get("ASAAS_URL", "https://sandbox.asaas.com/api/v3")
+
+    }
+
+@app.get("/pedido/{pedido_id}/status")
+def status_pedido(pedido_id: str):
+# ==================== ROTAS DE PAGAMENTO (Asaas) ====================
+
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return {"status": pedido.data[0]["status"]}
+
+    """Consulta status do pedido"""
+    pedido = supabase.table("pedidos").select("status").eq("id", pedido_id).execute()
+    if not pedido.data:
+        "status": "aberto"
+            "nome_produto": item.nome_produto,
+            "quantidade": item.quantidade,
+        supabase.table("pedido_itens").insert({
+            "pedido_id": pedido_id,
+            "produto_id": item.produto_id,
+    }).execute()
+    
+    for item in pedido.itens:
+    pedido_id = novo_pedido.data[0]["id"]
+    
+    # Insere itens
+    """Cria um novo pedido"""
+    # Calcula total
+    total = sum([item.preco_unitario * item.quantidade for item in pedido.itens])
+    
+    # Insere pedido
+    novo_pedido = supabase.table("pedidos").insert({
+        "cliente_id": pedido.cliente_id,
+        "total": total,
+        "agendamento": pedido.agendamento,
