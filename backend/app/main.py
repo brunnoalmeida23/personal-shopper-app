@@ -124,79 +124,89 @@ ASAAS_URL = os.environ.get("ASAAS_URL", "https://sandbox.asaas.com/api/v3")
 @app.post("/pagamento/pix/{pedido_id}")
 def gerar_pix(pedido_id: str):
     print(f"🔄 Gerando PIX para pedido: {pedido_id}")
-    
-    # Busca pedido
+
+    # Busca o pedido com os dados do cliente
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
         print(f"❌ Pedido {pedido_id} não encontrado")
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
-    
+
     p = pedido.data[0]
     cliente = p["clientes"]
-    
-    # Verifica se a chave do Asaas está configurada
+
     if not ASAAS_API_KEY:
         print("❌ ASAAS_API_KEY não configurada")
-        return {
-            "error": "Asaas não configurado",
-            "status": "pending"
-        }
-    
+        return {"error": "Asaas não configurado", "status": "pending"}
+
     headers = {
         "access_token": ASAAS_API_KEY,
         "Content-Type": "application/json"
     }
-    
+
     try:
-        # Busca cliente no Asaas
-        response = requests.get(f"{ASAAS_URL}/customers?phone={cliente['telefone']}", headers=headers)
-        
+        # 1. Busca ou cria cliente no Asaas
+        telefone_limpo = cliente["telefone"].replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        print(f"📱 Telefone limpo: {telefone_limpo}")
+
+        # Tenta buscar o cliente pelo telefone
+        search_url = f"{ASAAS_URL}/customers?phone={telefone_limpo}"
+        response = requests.get(search_url, headers=headers)
+
         if response.status_code == 200 and response.json().get("data"):
             customer_id = response.json()["data"][0]["id"]
             print(f"✅ Cliente encontrado no Asaas: {customer_id}")
         else:
             # Cria cliente no Asaas
-            payload = {
+            payload_cliente = {
                 "name": cliente["nome"],
-                "phone": cliente["telefone"],
-                "email": f"{cliente['telefone']}@temp.com"
+                "phone": telefone_limpo,
+                "email": f"{cliente['id']}@temp.com"
             }
-            response = requests.post(f"{ASAAS_URL}/customers", json=payload, headers=headers)
+            response = requests.post(f"{ASAAS_URL}/customers", json=payload_cliente, headers=headers)
+            print(f"📦 Resposta criação cliente: {response.status_code} - {response.text}")
+
+            if response.status_code not in [200, 201]:
+                return {"error": f"Erro ao criar cliente: {response.text}", "status": "error"}
+
             customer_id = response.json().get("id")
             print(f"✅ Cliente criado no Asaas: {customer_id}")
-        
-        # Cria cobrança PIX
-        payload = {
+
+        # 2. Cria cobrança PIX
+        valor_formatado = f"{p['total']:.2f}".replace(",", ".")
+        payload_pix = {
             "customer": customer_id,
             "billingType": "PIX",
-            "value": p["total"],
+            "value": valor_formatado,
             "dueDate": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
             "description": f"Pedido {pedido_id[:8]} - {cliente['apartamento']}"
         }
-        
-        response = requests.post(f"{ASAAS_URL}/payments", json=payload, headers=headers)
+
+        print(f"📦 Payload PIX: {payload_pix}")
+        response = requests.post(f"{ASAAS_URL}/payments", json=payload_pix, headers=headers)
+        print(f"📦 Resposta PIX: {response.status_code} - {response.text}")
+
+        if response.status_code not in [200, 201]:
+            return {"error": f"Erro ao criar cobrança PIX: {response.text}", "status": "error"}
+
         data = response.json()
-        print(f"✅ Cobrança PIX criada: {data.get('id')}")
-        
-        # Atualiza pedido
+
+        # Atualiza o pedido no Supabase
         supabase.table("pedidos").update({
             "pagamento_id": data.get("id"),
             "pagamento_tipo": "pix",
             "status": "aguardando_pagamento"
         }).eq("id", pedido_id).execute()
-        
+
         return {
             "qr_code": data.get("pixQrCode"),
             "qr_code_image": data.get("encodedImage"),
             "expiration": data.get("expirationDate"),
             "payment_id": data.get("id")
         }
+
     except Exception as e:
         print(f"❌ Erro ao gerar PIX: {str(e)}")
-        return {
-            "error": str(e),
-            "status": "error"
-        }
+        return {"error": str(e), "status": "error"}
 
 @app.post("/webhook/asaas")
 async def webhook_asaas(request: Request):
