@@ -93,19 +93,16 @@ def criar_pedido(pedido: Pedido):
             "preco_unitario": item.preco_unitario,
             "observacoes": item.observacoes
         }).execute()
+    
     return {"pedido_id": pedido_id, "total": total, "status": "aberto"}
 
-
 @app.get("/pedido/{pedido_id}")
-
 def buscar_pedido(pedido_id: str):
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
-
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     
     itens = supabase.table("pedido_itens").select("*").eq("pedido_id", pedido_id).execute()
-
     
     return {
         **pedido.data[0],
@@ -119,88 +116,19 @@ def status_pedido(pedido_id: str):
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     return {"status": pedido.data[0]["status"]}
 
-# ==================== PAGAMENTO ====================
-
-ASAAS_API_KEY = os.environ.get("ASAAS_API_KEY")
-ASAAS_URL = os.environ.get("ASAAS_URL", "https://sandbox.asaas.com/api/v3")
-
-def criar_cliente_asaas(telefone: str, nome: str):
-    headers = {
-        "access_token": ASAAS_API_KEY,
-        "Content-Type": "application/json"
-    }
-    
-    response = requests.get(f"{ASAAS_URL}/customers?phone={telefone}", headers=headers)
-    if response.status_code == 200 and response.json().get("data"):
-        return response.json()["data"][0]
-    
-    payload = {
-        "name": nome,
-        "phone": telefone,
-        "email": f"{telefone}@temp.com"
-    }
-    response = requests.post(f"{ASAAS_URL}/customers", json=payload, headers=headers)
-    return response.json()
+# ==================== PAGAMENTO (DESATIVADO) ====================
+# Rota desativada temporariamente - aguardando configuração do Asaas
 
 @app.post("/pagamento/pix/{pedido_id}")
 def gerar_pix(pedido_id: str):
-    pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
-    if not pedido.data:
-        raise HTTPException(status_code=404, detail="Pedido não encontrado")
-    
-    p = pedido.data[0]
-    cliente = p["clientes"]
-    
-    cliente_asaas = criar_cliente_asaas(cliente["telefone"], cliente["nome"])
-    
-    headers = {
-        "access_token": ASAAS_API_KEY,
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "customer": cliente_asaas["id"],
-        "billingType": "PIX",
-        "value": p["total"],
-        "dueDate": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
-        "description": f"Pedido {pedido_id[:8]} - {cliente['apartamento']}"
-    }
-    
-    response = requests.post(f"{ASAAS_URL}/payments", json=payload, headers=headers)
-    data = response.json()
-    
-    supabase.table("pedidos").update({
-        "pagamento_id": data.get("id"),
-        "pagamento_tipo": "pix",
-        "status": "aguardando_pagamento"
-    }).eq("id", pedido_id).execute()
-    
     return {
-        "qr_code": data.get("pixQrCode"),
-        "qr_code_image": data.get("encodedImage"),
-        "expiration": data.get("expirationDate"),
-        "payment_id": data.get("id")
+        "error": "Pagamento PIX não configurado. Configure o Asaas para ativar.",
+        "status": "pending"
     }
 
 @app.post("/webhook/asaas")
 async def webhook_asaas(request: Request):
-    payload = await request.json()
-    
-
-    payment_id = payload.get("payment", {}).get("id")
-    status = payload.get("payment", {}).get("status")
-    
-
-    if status == "CONFIRMED" and payment_id:
-
-        pedido = supabase.table("pedidos").update({
-            "status": "pago"
-        }).eq("pagamento_id", payment_id).execute()
-        
-        if pedido.data:
-            print(f"✅ Pedido {payment_id} pago com sucesso!")
-    
-    return {"status": "ok"}
+    return {"status": "ok", "message": "Webhook recebido"}
 
 @app.post("/buscar-produto")
 def buscar_produto(nome: str, cliente_id: Optional[str] = None):
