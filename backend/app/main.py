@@ -143,12 +143,19 @@ def gerar_pix(pedido_id: str):
     }
 
     try:
-        # 1. Formata o telefone para o padrão internacional (55 + DDD + número)
-        telefone_limpo = cliente["telefone"].replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        # 1. Formata o telefone para o padrão EXATO do Asaas
+        # Remove todos os caracteres especiais
+        telefone_limpo = cliente["telefone"].replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace("/", "").replace(".", "")
+        # Remove tudo que não é número
+        telefone_limpo = ''.join(filter(str.isdigit, telefone_limpo))
         # Adiciona o 55 (código do Brasil) se não tiver
         if not telefone_limpo.startswith("55"):
             telefone_limpo = "55" + telefone_limpo
-        print(f"📱 Telefone formatado: {telefone_limpo}")
+        # Garante que o telefone tem exatamente 13 dígitos (55 + DDD + 9 + 8 números)
+        # Se tiver 12 dígitos (sem o 9), adiciona o 9 após o DDD
+        if len(telefone_limpo) == 12:
+            telefone_limpo = telefone_limpo[:4] + "9" + telefone_limpo[4:]
+        print(f"📱 Telefone formatado: {telefone_limpo} (len: {len(telefone_limpo)})")
 
         # 2. Busca ou cria cliente no Asaas
         search_url = f"{ASAAS_URL}/customers?phone={telefone_limpo}"
