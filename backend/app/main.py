@@ -123,7 +123,6 @@ ASAAS_URL = os.environ.get("ASAAS_URL", "https://sandbox.asaas.com/api/v3")
 
 @app.post("/pagamento/pix/{pedido_id}")
 def gerar_pix(pedido_id: str):
-    # Busca pedido
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
@@ -131,10 +130,9 @@ def gerar_pix(pedido_id: str):
     p = pedido.data[0]
     cliente = p["clientes"]
     
-    # Verifica se a chave do Asaas está configurada
-    if not ASAAS_API_KEY or ASAAS_API_KEY == "":
+    if not ASAAS_API_KEY:
         return {
-            "error": "Asaas não configurado. Configure a chave da API.",
+            "error": "Asaas não configurado",
             "status": "pending"
         }
     
@@ -143,13 +141,12 @@ def gerar_pix(pedido_id: str):
         "Content-Type": "application/json"
     }
     
-    # Busca ou cria cliente no Asaas
+    # Busca cliente no Asaas
     response = requests.get(f"{ASAAS_URL}/customers?phone={cliente['telefone']}", headers=headers)
     
     if response.status_code == 200 and response.json().get("data"):
         customer_id = response.json()["data"][0]["id"]
     else:
-        # Cria cliente no Asaas
         payload = {
             "name": cliente["nome"],
             "phone": cliente["telefone"],
@@ -158,7 +155,6 @@ def gerar_pix(pedido_id: str):
         response = requests.post(f"{ASAAS_URL}/customers", json=payload, headers=headers)
         customer_id = response.json().get("id")
     
-    # Cria cobrança PIX
     payload = {
         "customer": customer_id,
         "billingType": "PIX",
@@ -170,7 +166,6 @@ def gerar_pix(pedido_id: str):
     response = requests.post(f"{ASAAS_URL}/payments", json=payload, headers=headers)
     data = response.json()
     
-    # Atualiza pedido com ID da cobrança
     supabase.table("pedidos").update({
         "pagamento_id": data.get("id"),
         "pagamento_tipo": "pix",
@@ -186,20 +181,15 @@ def gerar_pix(pedido_id: str):
 
 @app.post("/webhook/asaas")
 async def webhook_asaas(request: Request):
-    """Webhook para receber confirmação do Asaas"""
     payload = await request.json()
-    
     payment_id = payload.get("payment", {}).get("id")
     status = payload.get("payment", {}).get("status")
     
     if status == "CONFIRMED" and payment_id:
-        pedido = supabase.table("pedidos").update({
+        supabase.table("pedidos").update({
             "status": "pago"
         }).eq("pagamento_id", payment_id).execute()
-        
-        if pedido.data:
-            # Aqui você pode enviar notificação via WhatsApp
-            print(f"✅ Pedido {payment_id} pago com sucesso!")
+        print(f"✅ Pedido {payment_id} pago com sucesso!")
     
     return {"status": "ok"}
 
@@ -226,13 +216,13 @@ def buscar_produto(nome: str, cliente_id: Optional[str] = None):
                 "preco": round(preco_final, 2),
                 "fonte": p.get("fonte", "manual"),
                 "imagem": p.get("imagem")
+            }
         }
     
     if cliente_id:
         supabase.table("produtos_sob_demanda").insert({
             "nome_busca": nome,
             "cliente_id": cliente_id,
-
             "status": "solicitado"
         }).execute()
     
