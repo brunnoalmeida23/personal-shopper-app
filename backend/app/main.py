@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
-from database import supabase
-from models import Cliente, Pedido, Pagamento, ItemPedido
+from .database import supabase
+from .models import Cliente, Pedido, Pagamento, ItemPedido
 from datetime import datetime, timedelta
 import os
 import requests
