@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: personal-shopper-api
+    runtime: docker
+    repo: https://github.com/brunnoalmeida23/personal-shopper-app
+    branch: main
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: SUPABASE_URL
+        value: https://vvmaukrvghemzvayzwku.supabase.co
+      - key: SUPABASE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2bWF1a3J2Z2hlbXp2YXl6d2t1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2ODc1NzYsImV4cCI6MjEwMjI2MzU3Nn0.Csso0HSUXYwPmAPJz3hSRRxFTIryFPcBbjKmPix1qJM
+      - key: APIFY_TOKEN
+        value: ""
+      - key: ASAAS_API_KEY
+        value: ""
+      - key: ASAAS_URL
+        value: https://sandbox.asaas.com/api/v3
+      - key: LAT
+        value: -23.4538
+      - key: LNG
+        value: -46.5333
