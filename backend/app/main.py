@@ -125,7 +125,6 @@ ASAAS_URL = os.environ.get("ASAAS_URL", "https://sandbox.asaas.com/api/v3")
 def gerar_pix(pedido_id: str):
     print(f"🔄 Gerando PIX para pedido: {pedido_id}")
 
-    # Busca o pedido com os dados do cliente
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
         print(f"❌ Pedido {pedido_id} não encontrado")
@@ -144,11 +143,14 @@ def gerar_pix(pedido_id: str):
     }
 
     try:
-        # 1. Busca ou cria cliente no Asaas
+        # 1. Formata o telefone para o padrão internacional (55 + DDD + número)
         telefone_limpo = cliente["telefone"].replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-        print(f"📱 Telefone limpo: {telefone_limpo}")
+        # Adiciona o 55 (código do Brasil) se não tiver
+        if not telefone_limpo.startswith("55"):
+            telefone_limpo = "55" + telefone_limpo
+        print(f"📱 Telefone formatado: {telefone_limpo}")
 
-        # Tenta buscar o cliente pelo telefone
+        # 2. Busca ou cria cliente no Asaas
         search_url = f"{ASAAS_URL}/customers?phone={telefone_limpo}"
         response = requests.get(search_url, headers=headers)
 
@@ -171,7 +173,7 @@ def gerar_pix(pedido_id: str):
             customer_id = response.json().get("id")
             print(f"✅ Cliente criado no Asaas: {customer_id}")
 
-        # 2. Cria cobrança PIX
+        # 3. Cria cobrança PIX
         valor_formatado = f"{p['total']:.2f}".replace(",", ".")
         payload_pix = {
             "customer": customer_id,
@@ -190,7 +192,6 @@ def gerar_pix(pedido_id: str):
 
         data = response.json()
 
-        # Atualiza o pedido no Supabase
         supabase.table("pedidos").update({
             "pagamento_id": data.get("id"),
             "pagamento_tipo": "pix",
