@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Shopper Único</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>🛒 Personal Shopper</h1>
+            <span class="badge">Único</span>
+        </header>
+
+        <main>
+            <!-- Login -->
+            <section id="login">
+                <h2>Entre com seu apartamento</h2>
+                <input type="text" id="apartamento" placeholder="Ex: 101" />
+                <input type="text" id="nome" placeholder="Seu nome" />
+                <input type="text" id="telefone" placeholder="Telefone" />
+                <button id="btn-login">Entrar</button>
+            </section>
+            
+            <!-- Produtos -->
+            <section id="produtos" style="display:none">
+                <div class="search-box">
+                    <input type="text" id="busca" placeholder="🔍 Buscar produto..." />
+                </div>
+                <div id="lista-produtos"></div>
+            </section>
+            
+            <!-- Carrinho -->
+            <aside id="carrinho">
+                <h3>🛒 Carrinho</h3>
+                <div id="carrinho-itens"></div>
+                <div id="carrinho-total">Total: R$ 0,00</div>
+                <button id="btn-finalizar">Finalizar Pedido</button>
+            </aside>
+        </main>
+    </div>
+    
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
