@@ -73,8 +73,10 @@ def criar_cliente(cliente: Cliente):
         "nome": cliente.nome,
         "telefone": cliente.telefone,
         "bloco": cliente.bloco,
-        "cpf": cliente.cpf
+        "cpf": cliente.cpf  # <-- AGORA O CPF É SALVO
     }).execute()
+    
+    print(f"✅ Cliente criado com CPF: {cliente.cpf}")
     return novo.data[0]
 
 @app.post("/pedido")
@@ -160,17 +162,19 @@ def gerar_pix(pedido_id: str):
             telefone_limpo = telefone_limpo[:4] + "9" + telefone_limpo[4:]
         print(f"📱 Telefone formatado: {telefone_limpo} (len: {len(telefone_limpo)})")
 
-        # 2. Busca cliente no Asaas
-        cpf_cliente = cliente.get("cpf", "40589095870")
+        # 2. Busca ou cria cliente no Asaas com CPF
+        cpf_cliente = cliente.get("cpf")
+        if not cpf_cliente:
+            cpf_cliente = "40589095870"  # CPF padrão se não tiver
         print(f"📋 CPF do cliente: {cpf_cliente}")
 
-        # Busca por telefone primeiro
-        search_url = f"{ASAAS_URL}/customers?phone={telefone_limpo}"
+        # Busca cliente por CPF
+        search_url = f"{ASAAS_URL}/customers?cpfCnpj={cpf_cliente}"
         response = requests.get(search_url, headers=headers)
 
         if response.status_code == 200 and response.json().get("data"):
             customer_id = response.json()["data"][0]["id"]
-            print(f"✅ Cliente encontrado no Asaas: {customer_id}")
+            print(f"✅ Cliente encontrado no Asaas por CPF: {customer_id}")
         else:
             # Cria cliente no Asaas com CPF
             payload_cliente = {
@@ -179,7 +183,6 @@ def gerar_pix(pedido_id: str):
                 "cpfCnpj": cpf_cliente,
                 "email": f"{cliente['id']}@temp.com"
             }
-            print(f"📦 Payload criação cliente: {payload_cliente}")
             response = requests.post(f"{ASAAS_URL}/customers", json=payload_cliente, headers=headers)
             print(f"📦 Resposta criação cliente: {response.status_code} - {response.text}")
 
@@ -191,20 +194,6 @@ def gerar_pix(pedido_id: str):
 
         # 3. Cria cobrança PIX
         valor_formatado = f"{p['total']:.2f}".replace(",", ".")
-        
-        # Busca o cliente novamente para garantir que tem CPF
-        customer_response = requests.get(f"{ASAAS_URL}/customers/{customer_id}", headers=headers)
-        customer_data = customer_response.json()
-        print(f"📋 Dados do cliente no Asaas: {customer_data}")
-        
-        if not customer_data.get("cpfCnpj"):
-            # Atualiza o cliente com CPF
-            update_payload = {
-                "cpfCnpj": cpf_cliente
-            }
-            update_response = requests.post(f"{ASAAS_URL}/customers/{customer_id}", json=update_payload, headers=headers)
-            print(f"📦 Atualizando CPF: {update_response.status_code} - {update_response.text}")
-
         payload_pix = {
             "customer": customer_id,
             "billingType": "PIX",
@@ -251,7 +240,6 @@ async def webhook_asaas(request: Request):
         }).eq("pagamento_id", payment_id).execute()
         print(f"✅ Pedido {payment_id} pago com sucesso!")
     
-    return {"status": "ok"}
 
 @app.post("/buscar-produto")
 def buscar_produto(nome: str, cliente_id: Optional[str] = None):
@@ -266,9 +254,11 @@ def buscar_produto(nome: str, cliente_id: Optional[str] = None):
         elif p.get("preco_carrefour"):
             preco_final = p["preco_carrefour"] * markup
         else:
+
             preco_final = p.get("preco_poupaki", 0) * markup
         
         return {
+
             "encontrado": True,
             "produto": {
                 "id": p["id"],
