@@ -109,6 +109,7 @@ def criar_pedido(pedido: Pedido):
 @app.get("/pedido/{pedido_id}")
 def buscar_pedido(pedido_id: str):
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
+    if not pedido.data:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     
     itens = supabase.table("pedido_itens").select("*").eq("pedido_id", pedido_id).execute()
