@@ -151,7 +151,7 @@ def gerar_pix(pedido_id: str):
     }
 
     try:
-        # 1. Formata o telefone para o padrão EXATO do Asaas
+        # 1. Formata o telefone
         telefone_limpo = cliente["telefone"].replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace("/", "").replace(".", "")
         telefone_limpo = ''.join(filter(str.isdigit, telefone_limpo))
         if not telefone_limpo.startswith("55"):
@@ -161,18 +161,22 @@ def gerar_pix(pedido_id: str):
         print(f"📱 Telefone formatado: {telefone_limpo} (len: {len(telefone_limpo)})")
 
         # 2. Busca ou cria cliente no Asaas com CPF
-        search_url = f"{ASAAS_URL}/customers?phone={telefone_limpo}"
+        cpf_cliente = cliente.get("cpf", "40589095870")
+        print(f"📋 CPF do cliente: {cpf_cliente}")
+
+        # Busca cliente por CPF
+        search_url = f"{ASAAS_URL}/customers?cpfCnpj={cpf_cliente}"
         response = requests.get(search_url, headers=headers)
 
         if response.status_code == 200 and response.json().get("data"):
             customer_id = response.json()["data"][0]["id"]
-            print(f"✅ Cliente encontrado no Asaas: {customer_id}")
+            print(f"✅ Cliente encontrado no Asaas por CPF: {customer_id}")
         else:
             # Cria cliente no Asaas com CPF
             payload_cliente = {
                 "name": cliente["nome"],
                 "phone": telefone_limpo,
-                "cpfCnpj": cliente.get("cpf", "40589095870"),  # CPF do cliente ou fallback
+                "cpfCnpj": cpf_cliente,
                 "email": f"{cliente['id']}@temp.com"
             }
             response = requests.post(f"{ASAAS_URL}/customers", json=payload_cliente, headers=headers)
@@ -254,7 +258,6 @@ def buscar_produto(nome: str, cliente_id: Optional[str] = None):
             "produto": {
                 "id": p["id"],
                 "nome": p["nome"],
-                "preco": round(preco_final, 2),
                 "fonte": p.get("fonte", "manual"),
                 "imagem": p.get("imagem")
             }
@@ -262,15 +265,18 @@ def buscar_produto(nome: str, cliente_id: Optional[str] = None):
     
     if cliente_id:
         supabase.table("produtos_sob_demanda").insert({
+
             "nome_busca": nome,
             "cliente_id": cliente_id,
             "status": "solicitado"
         }).execute()
     
+
     return {
         "encontrado": False,
         "solicitar": True,
         "mensagem": "Produto não encontrado. Clique em 'Solicitar' para adicionarmos ao catálogo."
+
     }
 
 # ==================== ROTA DE TESTE ASAAS ====================
