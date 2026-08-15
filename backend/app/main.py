@@ -62,11 +62,19 @@ def listar_produtos(busca: Optional[str] = None, categoria: Optional[str] = None
 
 @app.post("/cliente")
 def criar_cliente(cliente: Cliente):
+    # Verifica se já existe
     existente = supabase.table("clientes").select("*").eq("apartamento", cliente.apartamento).execute()
     if existente.data:
         return existente.data[0]
     
-    novo = supabase.table("clientes").insert(cliente.dict()).execute()
+    # Cria novo cliente com CPF
+    novo = supabase.table("clientes").insert({
+        "apartamento": cliente.apartamento,
+        "nome": cliente.nome,
+        "telefone": cliente.telefone,
+        "bloco": cliente.bloco,
+        "cpf": cliente.cpf
+    }).execute()
     return novo.data[0]
 
 @app.post("/pedido")
@@ -144,20 +152,15 @@ def gerar_pix(pedido_id: str):
 
     try:
         # 1. Formata o telefone para o padrão EXATO do Asaas
-        # Remove todos os caracteres especiais
         telefone_limpo = cliente["telefone"].replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace("/", "").replace(".", "")
-        # Remove tudo que não é número
         telefone_limpo = ''.join(filter(str.isdigit, telefone_limpo))
-        # Adiciona o 55 (código do Brasil) se não tiver
         if not telefone_limpo.startswith("55"):
             telefone_limpo = "55" + telefone_limpo
-        # Garante que o telefone tem exatamente 13 dígitos (55 + DDD + 9 + 8 números)
-        # Se tiver 12 dígitos (sem o 9), adiciona o 9 após o DDD
         if len(telefone_limpo) == 12:
             telefone_limpo = telefone_limpo[:4] + "9" + telefone_limpo[4:]
         print(f"📱 Telefone formatado: {telefone_limpo} (len: {len(telefone_limpo)})")
 
-        # 2. Busca ou cria cliente no Asaas
+        # 2. Busca ou cria cliente no Asaas com CPF
         search_url = f"{ASAAS_URL}/customers?phone={telefone_limpo}"
         response = requests.get(search_url, headers=headers)
 
@@ -165,10 +168,11 @@ def gerar_pix(pedido_id: str):
             customer_id = response.json()["data"][0]["id"]
             print(f"✅ Cliente encontrado no Asaas: {customer_id}")
         else:
-            # Cria cliente no Asaas
+            # Cria cliente no Asaas com CPF
             payload_cliente = {
                 "name": cliente["nome"],
                 "phone": telefone_limpo,
+                "cpfCnpj": cliente.get("cpf", "40589095870"),  # CPF do cliente ou fallback
                 "email": f"{cliente['id']}@temp.com"
             }
             response = requests.post(f"{ASAAS_URL}/customers", json=payload_cliente, headers=headers)

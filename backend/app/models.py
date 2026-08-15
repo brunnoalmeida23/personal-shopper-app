@@ -1,11 +1,13 @@
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import datetime
 
 class Cliente(BaseModel):
     apartamento: str
     nome: str
     telefone: str
     bloco: Optional[str] = None
+    cpf: Optional[str] = None
 
 class Produto(BaseModel):
     nome: str
