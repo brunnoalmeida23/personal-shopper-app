@@ -73,7 +73,7 @@ def criar_cliente(cliente: Cliente):
         "nome": cliente.nome,
         "telefone": cliente.telefone,
         "bloco": cliente.bloco,
-        "cpf": cliente.cpf  # <-- AGORA O CPF É SALVO
+        "cpf": cliente.cpf
     }).execute()
     
     print(f"✅ Cliente criado com CPF: {cliente.cpf}")
@@ -109,7 +109,6 @@ def criar_pedido(pedido: Pedido):
 @app.get("/pedido/{pedido_id}")
 def buscar_pedido(pedido_id: str):
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
-    if not pedido.data:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     
     itens = supabase.table("pedido_itens").select("*").eq("pedido_id", pedido_id).execute()
@@ -153,22 +152,24 @@ def gerar_pix(pedido_id: str):
     }
 
     try:
-        # 1. Formata o telefone
+        # 1. Formata o telefone para o padrão EXATO do Asaas
         telefone_limpo = cliente["telefone"].replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace("/", "").replace(".", "")
         telefone_limpo = ''.join(filter(str.isdigit, telefone_limpo))
-        if not telefone_limpo.startswith("55"):
+
+        # Formata corretamente
+        if len(telefone_limpo) == 11:  # 11999999999
+            telefone_limpo = "55" + telefone_limpo  # 5511999999999
+        elif len(telefone_limpo) == 10:  # 1199999999
+            telefone_limpo = "55" + telefone_limpo  # 551199999999
+        elif not telefone_limpo.startswith("55"):
             telefone_limpo = "55" + telefone_limpo
-        if len(telefone_limpo) == 12:
-            telefone_limpo = telefone_limpo[:4] + "9" + telefone_limpo[4:]
+
         print(f"📱 Telefone formatado: {telefone_limpo} (len: {len(telefone_limpo)})")
 
         # 2. Busca ou cria cliente no Asaas com CPF
-        cpf_cliente = cliente.get("cpf")
-        if not cpf_cliente:
-            cpf_cliente = "40589095870"  # CPF padrão se não tiver
+        cpf_cliente = cliente.get("cpf", "40589095870")
         print(f"📋 CPF do cliente: {cpf_cliente}")
 
-        # Busca cliente por CPF
         search_url = f"{ASAAS_URL}/customers?cpfCnpj={cpf_cliente}"
         response = requests.get(search_url, headers=headers)
 
@@ -176,7 +177,6 @@ def gerar_pix(pedido_id: str):
             customer_id = response.json()["data"][0]["id"]
             print(f"✅ Cliente encontrado no Asaas por CPF: {customer_id}")
         else:
-            # Cria cliente no Asaas com CPF
             payload_cliente = {
                 "name": cliente["nome"],
                 "phone": telefone_limpo,
@@ -240,6 +240,7 @@ async def webhook_asaas(request: Request):
         }).eq("pagamento_id", payment_id).execute()
         print(f"✅ Pedido {payment_id} pago com sucesso!")
     
+    return {"status": "ok"}
 
 @app.post("/buscar-produto")
 def buscar_produto(nome: str, cliente_id: Optional[str] = None):
@@ -254,11 +255,9 @@ def buscar_produto(nome: str, cliente_id: Optional[str] = None):
         elif p.get("preco_carrefour"):
             preco_final = p["preco_carrefour"] * markup
         else:
-
             preco_final = p.get("preco_poupaki", 0) * markup
         
         return {
-
             "encontrado": True,
             "produto": {
                 "id": p["id"],
