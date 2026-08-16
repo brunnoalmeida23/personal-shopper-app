@@ -164,6 +164,7 @@ ASAAS_URL = os.environ.get("ASAAS_URL", "https://sandbox.asaas.com/api/v3")
 def gerar_pix(pedido_id: str):
     print(f"🔄 Gerando PIX para pedido: {pedido_id}")
 
+    # Busca o pedido com os dados do cliente
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
         print(f"❌ Pedido {pedido_id} não encontrado")
@@ -184,10 +185,6 @@ def gerar_pix(pedido_id: str):
     try:
         # 1. Formata o telefone usando a função auxiliar
         telefone_formatado = formatar_telefone_asaas(cliente["telefone"])
-        
-        if not telefone_formatado:
-            return {"error": "Telefone inválido. Use 11 dígitos (DDD + 9 + número).", "status": "error"}
-        
         print(f"📱 Telefone formatado: {telefone_formatado} (len: {len(telefone_formatado)})")
 
         # 2. Busca ou cria cliente no Asaas com CPF
@@ -202,13 +199,14 @@ def gerar_pix(pedido_id: str):
             customer_id = response.json()["data"][0]["id"]
             print(f"✅ Cliente encontrado no Asaas por CPF: {customer_id}")
         else:
-            # Cria cliente no Asaas com CPF e telefone
+            # Cria cliente no Asaas com CPF
             payload_cliente = {
                 "name": cliente["nome"],
-                "phone": telefone_formatado,
-                "cpfCnpj": cpf_cliente,
-                "email": f"{cliente['id']}@temp.com"
+                "cpfCnpj": cpf_cliente
             }
+            if telefone_formatado:
+                payload_cliente["phone"] = telefone_formatado
+            
             print(f"📦 Payload criação cliente: {payload_cliente}")
             response = requests.post(f"{ASAAS_URL}/customers", json=payload_cliente, headers=headers)
             print(f"📦 Resposta criação cliente: {response.status_code} - {response.text}")
@@ -219,14 +217,15 @@ def gerar_pix(pedido_id: str):
             customer_id = response.json().get("id")
             print(f"✅ Cliente criado no Asaas: {customer_id}")
 
-        # 3. Cria cobrança PIX
+        # 3. Cria cobrança PIX com externalReference = pedido_id
         valor_formatado = f"{p['total']:.2f}".replace(",", ".")
         payload_pix = {
             "customer": customer_id,
             "billingType": "PIX",
             "value": valor_formatado,
             "dueDate": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
-            "description": f"Pedido {pedido_id[:8]} - {cliente['apartamento']}"
+            "description": f"Pedido {pedido_id[:8]} - {cliente['apartamento']}",
+            "externalReference": pedido_id  # <-- VINCULA O PAGAMENTO AO PEDIDO
         }
 
         print(f"📦 Payload PIX: {payload_pix}")
@@ -238,6 +237,7 @@ def gerar_pix(pedido_id: str):
 
         data = response.json()
 
+        # Atualiza o pedido com o ID da cobrança
         supabase.table("pedidos").update({
             "pagamento_id": data.get("id"),
             "pagamento_tipo": "pix",
@@ -248,26 +248,74 @@ def gerar_pix(pedido_id: str):
             "qr_code": data.get("pixQrCode"),
             "qr_code_image": data.get("encodedImage"),
             "expiration": data.get("expirationDate"),
-            "payment_id": data.get("id")
+            "payment_id": data.get("id"),
+            "pedido_id": pedido_id
         }
 
     except Exception as e:
         print(f"❌ Erro ao gerar PIX: {str(e)}")
         return {"error": str(e), "status": "error"}
 
+
+# ==================== WEBHOOK ASAAS ====================
+
 @app.post("/webhook/asaas")
 async def webhook_asaas(request: Request):
-    payload = await request.json()
-    payment_id = payload.get("payment", {}).get("id")
-    status = payload.get("payment", {}).get("status")
-    
-    if status == "CONFIRMED" and payment_id:
-        supabase.table("pedidos").update({
-            "status": "pago"
-        }).eq("pagamento_id", payment_id).execute()
-        print(f"✅ Pedido {payment_id} pago com sucesso!")
-    
-    return {"status": "ok"}
+    try:
+        payload = await request.json()
+        print(f"📨 Webhook recebido: {payload}")
+        
+        # Verifica se é uma confirmação de pagamento
+        event_type = payload.get("event")
+        
+        if event_type == "PAYMENT_CONFIRMED":
+            payment_data = payload.get("payment", {})
+            payment_id = payment_data.get("id")
+            external_reference = payment_data.get("externalReference")
+            
+            print(f"🔍 Payment ID: {payment_id}")
+            print(f"🔍 External Reference (pedido_id): {external_reference}")
+            
+            if external_reference:
+                # ATUALIZA O PEDIDO PARA "PAGO"
+                result = supabase.table("pedidos").update({
+                    "status": "pago",
+                    "entregue_em": datetime.now().isoformat()
+                }).eq("id", external_reference).execute()
+                
+                print(f"✅ Pedido {external_reference} foi pago!")
+                print(f"📦 Resultado da atualização: {result}")
+                
+                # AQUI VOCÊ PODE ENVIAR NOTIFICAÇÃO
+                # (WhatsApp, Telegram, email, etc.)
+                # enviar_notificacao_whatsapp(external_reference)
+                
+                return {"status": "ok", "message": "Pedido atualizado com sucesso"}
+            else:
+                print("⚠️ External Reference não encontrado no payload")
+                return {"status": "error", "message": "External Reference não encontrado"}
+        
+        # Outros eventos (PAYMENT_OVERDUE, PAYMENT_RECEIVED, etc.)
+        print(f"📌 Evento recebido: {event_type}")
+        return {"status": "ok", "message": f"Evento {event_type} recebido"}
+        
+    except Exception as e:
+        print(f"❌ Erro no webhook: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+# ==================== ROTA DE TESTE ASAAS ====================
+
+@app.get("/teste/asaas")
+def teste_asaas():
+    chave = os.environ.get("ASAAS_API_KEY")
+    url = os.environ.get("ASAAS_URL")
+    return {
+        "chave_configurada": bool(chave),
+        "chave_preview": chave[:20] + "..." if chave else "NÃO CONFIGURADA",
+        "asaas_url": url if url else "NÃO CONFIGURADA",
+        "servidor": "Render"
+    }
 
 @app.post("/buscar-produto")
 def buscar_produto(nome: str, cliente_id: Optional[str] = None):
@@ -306,19 +354,6 @@ def buscar_produto(nome: str, cliente_id: Optional[str] = None):
         "encontrado": False,
         "solicitar": True,
         "mensagem": "Produto não encontrado. Clique em 'Solicitar' para adicionarmos ao catálogo."
-    }
-
-# ==================== ROTA DE TESTE ASAAS ====================
-
-@app.get("/teste/asaas")
-def teste_asaas():
-    chave = os.environ.get("ASAAS_API_KEY")
-    url = os.environ.get("ASAAS_URL")
-    return {
-        "chave_configurada": bool(chave),
-        "chave_preview": chave[:20] + "..." if chave else "NÃO CONFIGURADA",
-        "asaas_url": url if url else "NÃO CONFIGURADA",
-        "servidor": "Render"
     }
 
 if __name__ == "__main__":
