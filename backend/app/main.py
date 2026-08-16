@@ -18,6 +18,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ==================== FUNÇÃO AUXILIAR PARA TELEFONE ====================
+
+def formatar_telefone_asaas(telefone: str) -> str:
+    """
+    Formata o telefone para o padrão exato do Asaas.
+    Remove tudo que não é número, remove o 55 se existir,
+    e garante que tenha 11 dígitos (DDD + 9 + 8 números).
+    """
+    # Remove tudo que não é número
+    numero = ''.join(filter(str.isdigit, telefone))
+    
+    # Remove o 55 se estiver no início
+    if numero.startswith("55"):
+        numero = numero[2:]
+    
+    # Se tem 10 dígitos, adiciona o 9 após o DDD
+    if len(numero) == 10:
+        numero = numero[:2] + "9" + numero[2:]
+    
+    # Se tem mais de 11 dígitos, pega os últimos 11
+    if len(numero) > 11:
+        numero = numero[-11:]
+    
+    # Se tem menos de 10 dígitos, retorna vazio
+    if len(numero) < 10:
+        return ""
+    
+    return numero
+
 # ==================== ROTAS ====================
 
 @app.get("/")
@@ -153,24 +182,19 @@ def gerar_pix(pedido_id: str):
     }
 
     try:
-        # 1. Formata o telefone para o padrão EXATO do Asaas
-        telefone_limpo = cliente["telefone"].replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace("/", "").replace(".", "")
-        telefone_limpo = ''.join(filter(str.isdigit, telefone_limpo))
-
-        # Formata corretamente
-        if len(telefone_limpo) == 11:  # 11999999999
-            telefone_limpo = "55" + telefone_limpo  # 5511999999999
-        elif len(telefone_limpo) == 10:  # 1199999999
-            telefone_limpo = "55" + telefone_limpo  # 551199999999
-        elif not telefone_limpo.startswith("55"):
-            telefone_limpo = "55" + telefone_limpo
-
-        print(f"📱 Telefone formatado: {telefone_limpo} (len: {len(telefone_limpo)})")
+        # 1. Formata o telefone usando a função auxiliar
+        telefone_formatado = formatar_telefone_asaas(cliente["telefone"])
+        
+        if not telefone_formatado:
+            return {"error": "Telefone inválido. Use 11 dígitos (DDD + 9 + número).", "status": "error"}
+        
+        print(f"📱 Telefone formatado: {telefone_formatado} (len: {len(telefone_formatado)})")
 
         # 2. Busca ou cria cliente no Asaas com CPF
         cpf_cliente = cliente.get("cpf", "40589095870")
         print(f"📋 CPF do cliente: {cpf_cliente}")
 
+        # Busca cliente por CPF
         search_url = f"{ASAAS_URL}/customers?cpfCnpj={cpf_cliente}"
         response = requests.get(search_url, headers=headers)
 
@@ -178,12 +202,14 @@ def gerar_pix(pedido_id: str):
             customer_id = response.json()["data"][0]["id"]
             print(f"✅ Cliente encontrado no Asaas por CPF: {customer_id}")
         else:
+            # Cria cliente no Asaas com CPF e telefone
             payload_cliente = {
                 "name": cliente["nome"],
-                "phone": telefone_limpo,
+                "phone": telefone_formatado,
                 "cpfCnpj": cpf_cliente,
                 "email": f"{cliente['id']}@temp.com"
             }
+            print(f"📦 Payload criação cliente: {payload_cliente}")
             response = requests.post(f"{ASAAS_URL}/customers", json=payload_cliente, headers=headers)
             print(f"📦 Resposta criação cliente: {response.status_code} - {response.text}")
 
