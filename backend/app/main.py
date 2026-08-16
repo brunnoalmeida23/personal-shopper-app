@@ -105,7 +105,7 @@ def criar_cliente(cliente: Cliente):
         "cpf": cliente.cpf
     }).execute()
     
-    print(f"✅ Cliente criado com CPF: {cliente.cpf}")
+    print(f"✅ Cliente criado no Supabase com CPF: {cliente.cpf}")
     return novo.data[0]
 
 @app.post("/pedido")
@@ -164,7 +164,6 @@ ASAAS_URL = os.environ.get("ASAAS_URL", "https://sandbox.asaas.com/api/v3")
 def gerar_pix(pedido_id: str):
     print(f"🔄 Gerando PIX para pedido: {pedido_id}")
 
-    # Busca o pedido com os dados do cliente
     pedido = supabase.table("pedidos").select("*, clientes(*)").eq("id", pedido_id).execute()
     if not pedido.data:
         print(f"❌ Pedido {pedido_id} não encontrado")
@@ -183,15 +182,13 @@ def gerar_pix(pedido_id: str):
     }
 
     try:
-        # 1. Formata o telefone usando a função auxiliar
-        telefone_formatado = formatar_telefone_asaas(cliente["telefone"])
-        print(f"📱 Telefone formatado: {telefone_formatado} (len: {len(telefone_formatado)})")
-
-        # 2. Busca ou cria cliente no Asaas com CPF
-        cpf_cliente = cliente.get("cpf", "40589095870")
+        # 1. GARANTE O CPF
+        cpf_cliente = cliente.get("cpf")
+        if not cpf_cliente:
+            cpf_cliente = "40589095870"  # CPF padrão
         print(f"📋 CPF do cliente: {cpf_cliente}")
 
-        # Busca cliente por CPF
+        # 2. Busca cliente por CPF
         search_url = f"{ASAAS_URL}/customers?cpfCnpj={cpf_cliente}"
         response = requests.get(search_url, headers=headers)
 
@@ -199,15 +196,12 @@ def gerar_pix(pedido_id: str):
             customer_id = response.json()["data"][0]["id"]
             print(f"✅ Cliente encontrado no Asaas por CPF: {customer_id}")
         else:
-            # Cria cliente no Asaas com CPF
+            # 3. CRIA CLIENTE COM CPF (SEM TELEFONE)
             payload_cliente = {
                 "name": cliente["nome"],
                 "cpfCnpj": cpf_cliente
             }
-            if telefone_formatado:
-                payload_cliente["phone"] = telefone_formatado
-            
-            print(f"📦 Payload criação cliente: {payload_cliente}")
+            print(f"📦 Criando cliente com CPF: {payload_cliente}")
             response = requests.post(f"{ASAAS_URL}/customers", json=payload_cliente, headers=headers)
             print(f"📦 Resposta criação cliente: {response.status_code} - {response.text}")
 
@@ -217,7 +211,7 @@ def gerar_pix(pedido_id: str):
             customer_id = response.json().get("id")
             print(f"✅ Cliente criado no Asaas: {customer_id}")
 
-        # 3. Cria cobrança PIX com externalReference = pedido_id
+        # 4. CRIA COBRANÇA PIX
         valor_formatado = f"{p['total']:.2f}".replace(",", ".")
         payload_pix = {
             "customer": customer_id,
@@ -225,7 +219,7 @@ def gerar_pix(pedido_id: str):
             "value": valor_formatado,
             "dueDate": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
             "description": f"Pedido {pedido_id[:8]} - {cliente['apartamento']}",
-            "externalReference": pedido_id  # <-- VINCULA O PAGAMENTO AO PEDIDO
+            "externalReference": pedido_id
         }
 
         print(f"📦 Payload PIX: {payload_pix}")
@@ -237,7 +231,6 @@ def gerar_pix(pedido_id: str):
 
         data = response.json()
 
-        # Atualiza o pedido com o ID da cobrança
         supabase.table("pedidos").update({
             "pagamento_id": data.get("id"),
             "pagamento_tipo": "pix",
@@ -262,6 +255,14 @@ def gerar_pix(pedido_id: str):
 @app.post("/webhook/asaas")
 async def webhook_asaas(request: Request):
     try:
+        # Verifica o token de autenticação
+        token = request.headers.get("asaas-access-token")
+        expected_token = "whsec_Ovu-MC0c2Y91qXzrJVeszpCEmmJFhrzYn3LM4tEW_uc"
+        
+        if token != expected_token:
+            print(f"❌ Token inválido: {token}")
+            return {"status": "error", "message": "Token inválido"}
+        
         payload = await request.json()
         print(f"📨 Webhook recebido: {payload}")
         
@@ -286,16 +287,11 @@ async def webhook_asaas(request: Request):
                 print(f"✅ Pedido {external_reference} foi pago!")
                 print(f"📦 Resultado da atualização: {result}")
                 
-                # AQUI VOCÊ PODE ENVIAR NOTIFICAÇÃO
-                # (WhatsApp, Telegram, email, etc.)
-                # enviar_notificacao_whatsapp(external_reference)
-                
                 return {"status": "ok", "message": "Pedido atualizado com sucesso"}
             else:
                 print("⚠️ External Reference não encontrado no payload")
                 return {"status": "error", "message": "External Reference não encontrado"}
         
-        # Outros eventos (PAYMENT_OVERDUE, PAYMENT_RECEIVED, etc.)
         print(f"📌 Evento recebido: {event_type}")
         return {"status": "ok", "message": f"Evento {event_type} recebido"}
         
