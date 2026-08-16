@@ -230,20 +230,39 @@ def gerar_pix(pedido_id: str):
             return {"error": f"Erro ao criar cobrança PIX: {response.text}", "status": "error"}
 
         data = response.json()
+        payment_id = data.get("id")
 
+        # 5. ATUALIZA O PEDIDO
         supabase.table("pedidos").update({
-            "pagamento_id": data.get("id"),
+            "pagamento_id": payment_id,
             "pagamento_tipo": "pix",
             "status": "aguardando_pagamento"
         }).eq("id", pedido_id).execute()
 
-        return {
-            "qr_code": data.get("pixQrCode"),
-            "qr_code_image": data.get("encodedImage"),
-            "expiration": data.get("expirationDate"),
-            "payment_id": data.get("id"),
-            "pedido_id": pedido_id
-        }
+        # 6. BUSCA O QR CODE DA COBRANÇA
+        qr_url = f"{ASAAS_URL}/payments/{payment_id}/pixQrCode"
+        qr_response = requests.get(qr_url, headers=headers)
+        print(f"📦 Resposta QR Code: {qr_response.status_code} - {qr_response.text}")
+
+        if qr_response.status_code == 200:
+            qr_data = qr_response.json()
+            return {
+                "qr_code": qr_data.get("payload"),
+                "qr_code_image": qr_data.get("encodedImage"),
+                "expiration": qr_data.get("expirationDate"),
+                "payment_id": payment_id,
+                "pedido_id": pedido_id
+            }
+        else:
+            # Se não conseguir buscar o QR Code, retorna só o payment_id
+            return {
+                "qr_code": None,
+                "qr_code_image": None,
+                "expiration": None,
+                "payment_id": payment_id,
+                "pedido_id": pedido_id,
+                "warning": "QR Code não disponível. Verifique a cobrança no Asaas."
+            }
 
     except Exception as e:
         print(f"❌ Erro ao gerar PIX: {str(e)}")
