@@ -9,10 +9,16 @@ import requests
 
 app = FastAPI(title="Personal Shopper Único API", version="1.0")
 
-# ==================== CORS ====================
+# ==================== CORS CORRIGIDO ====================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://personal-shopper-app-v2.vercel.app",
+        "https://personal-shopper-app-ten.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "*"  # Permite todas as origens (útil para testes)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
