@@ -1,5 +1,5 @@
 // Configuração da API
-const API_URL = 'https://personal-shopper-app.onrender.com';
+const API_URL = 'https://personal-shopper-app-ten.vercel.app';
 
 export async function buscarProdutos(busca = '') {
     const url = busca ? `${API_URL}/produtos?busca=${busca}` : `${API_URL}/produtos`;
